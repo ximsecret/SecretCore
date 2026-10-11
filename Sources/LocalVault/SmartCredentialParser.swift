@@ -4,18 +4,58 @@ public struct ParsedCredential: Equatable, Identifiable {
     public var id: UUID = UUID()
     public var title: String
     public var url: String
+    public var accountLabel: String = "账号"
     public var username: String
+    public var passwordLabel: String = "密码"
     public var password: String
+    public var extraPasswords: [LabeledPassword] = []
     public var totpSecret: String
     public var totpDigits: Int
     public var totpPeriod: Int
     public var totpAlgorithm: TOTPAlgorithm
     public var category: AccountCategory
     public var notes: String
+    public var noteEntries: [NoteEntry] = []
     public var recognizedFields: [String]
 
+    public init(
+        id: UUID = UUID(),
+        title: String = "",
+        url: String = "",
+        accountLabel: String = "账号",
+        username: String = "",
+        passwordLabel: String = "密码",
+        password: String = "",
+        extraPasswords: [LabeledPassword] = [],
+        totpSecret: String = "",
+        totpDigits: Int = 6,
+        totpPeriod: Int = 30,
+        totpAlgorithm: TOTPAlgorithm = .sha1,
+        category: AccountCategory = .general,
+        notes: String = "",
+        noteEntries: [NoteEntry] = [],
+        recognizedFields: [String] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.url = url
+        self.accountLabel = accountLabel
+        self.username = username
+        self.passwordLabel = passwordLabel
+        self.password = password
+        self.extraPasswords = extraPasswords
+        self.totpSecret = totpSecret
+        self.totpDigits = totpDigits
+        self.totpPeriod = totpPeriod
+        self.totpAlgorithm = totpAlgorithm
+        self.category = category
+        self.notes = notes
+        self.noteEntries = noteEntries
+        self.recognizedFields = recognizedFields
+    }
+
     public var hasAnyContent: Bool {
-        !title.isEmpty || !url.isEmpty || !username.isEmpty || !password.isEmpty || !totpSecret.isEmpty
+        !title.isEmpty || !url.isEmpty || !username.isEmpty || !password.isEmpty || !totpSecret.isEmpty || !extraPasswords.isEmpty || !noteEntries.isEmpty
     }
 
     public var hasValidBase32TOTP: Bool {
@@ -25,9 +65,14 @@ public struct ParsedCredential: Equatable, Identifiable {
     }
 
     public func toCredentialEntry() -> CredentialEntry {
-        CredentialEntry(
+        let effAccLabel = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effPwdLabel = passwordLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return CredentialEntry(
+            accountLabel: effAccLabel.isEmpty ? "账号" : effAccLabel,
             username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+            passwordLabel: effPwdLabel.isEmpty ? "密码" : effPwdLabel,
             password: password,
+            extraPasswords: extraPasswords,
             totpSecret: totpSecret.trimmingCharacters(in: .whitespacesAndNewlines),
             totpDigits: totpDigits,
             totpPeriod: totpPeriod,
@@ -51,7 +96,7 @@ public struct ParsedCredential: Equatable, Identifiable {
 
         let entry = toCredentialEntry()
 
-        return AccountItem(
+        var item = AccountItem(
             title: finalTitle,
             username: entry.username,
             password: entry.password,
@@ -65,39 +110,51 @@ public struct ParsedCredential: Equatable, Identifiable {
             totpPeriod: entry.totpPeriod,
             totpAlgorithm: entry.totpAlgorithm,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            noteEntries: noteEntries,
+            notesLayout: .single,
             entries: [entry],
             createdAt: Date(),
             updatedAt: Date()
         )
+        item.syncNotesFromEntries()
+        return item
     }
 }
 
 public enum SmartCredentialParser {
 
     /// 智能解析单条文本（支持单行空格/Tab分隔、带括号2FA、带标签键值对或多行分段）
-    /// 例如: "xxxx.com   xxx账号   xxx密码    2fa（xxxx）"
+    /// 例如: "xxxx.com   密码：xxx   账号：xxx   2fa（xxxx）   资金密码：yyy   备注1：zzz"
     public static func parse(_ rawInput: String, defaultCategory: AccountCategory = .general) -> ParsedCredential {
         var working = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if working.isEmpty {
             return ParsedCredential(
                 title: "",
                 url: "",
+                accountLabel: "账号",
                 username: "",
+                passwordLabel: "密码",
                 password: "",
+                extraPasswords: [],
                 totpSecret: "",
                 totpDigits: 6,
                 totpPeriod: 30,
                 totpAlgorithm: .sha1,
                 category: defaultCategory,
                 notes: "",
+                noteEntries: [],
                 recognizedFields: []
             )
         }
 
         var title = ""
         var url = ""
+        var accountLabel = "账号"
         var username = ""
+        var passwordLabel = "密码"
         var password = ""
+        var extraPasswords: [LabeledPassword] = []
+        var noteEntries: [NoteEntry] = []
         var totpSecret = ""
         var totpDigits = 6
         var totpPeriod = 30
@@ -106,7 +163,7 @@ public enum SmartCredentialParser {
         var badges: [String] = []
 
         // 0. 检查是否包含 otpauth:// 协议链接
-        if let otpRange = working.range(of: #"otpauth:\/\/[^\s\t\n]+"#, options: [.regularExpression, .caseInsensitive]) {
+        if let otpRange = working.range(of: #"otpauth:\/\/[^\s\t\r\n]+"#, options: [.regularExpression, .caseInsensitive]) {
             let uriString = String(working[otpRange])
             if let parsedOTP = TOTPEngine.parseOTPAuthURI(uriString) {
                 totpSecret = parsedOTP.secret
@@ -139,7 +196,7 @@ public enum SmartCredentialParser {
             working.replaceSubrange(match.fullRange, with: " ")
         } else {
             // 2. 提取冒号或空格跟随的 2FA 标记，如：2fa: xxxx / 2FA：xxxx / 2fa=xxxx / 2fa xxxx
-            let colon2FAPattern = #"(?:2fa|totp|双重认证|动态码|验证码|谷歌验证|otp)\s*(?:[:：=]\s*|\s+)([A-Za-z0-9=\s-]{3,64}?)(?=$|\n|\r|\t|  |\s+(?:网址|账号|密码|备注|http))"#
+            let colon2FAPattern = #"(?:2fa|totp|双重认证|动态码|验证码|谷歌验证|otp)\s*(?:[:：=]\s*|\s+)([A-Za-z0-9=\s-]{3,64}?)(?=$|\r|\n|\t|  |\s+(?:网址|网站|账号|账户|密码|口令|备注|http|用途|域名|资金密码|支付密码))"#
             if let match = firstMatch(pattern: colon2FAPattern, in: working) {
                 let captured = match.group1
                 let cleaned = captured
@@ -153,55 +210,113 @@ public enum SmartCredentialParser {
             }
         }
 
-        // 3. 提取显式标签字段 (如 "网址: xxx", "账号: xxx", "密码: xxx", "标题: xxx", "备注: xxx")
-        if let m = firstMatch(pattern: #"(?:网址|网站|链接|域名|url|link|domain|site)\s*[:：=]\s*([^\s\t\n]+)"#, in: working) {
+        // 3. 循环提取从属密码（如 资金密码: xxx, 支付密码: xxx, 交易密码: xxx, API Key: xxx, 二级密码: xxx, PIN码: xxx, 安全密码: xxx）
+        let extraPasswordPattern = #"(资金密码|支付密码|交易密码|API\s*Key|二级密码|PIN\s*码?|安全密码)\s*[:：=]\s*([^\s\t\r\n]+)"#
+        while let match = matchTwoGroups(pattern: extraPasswordPattern, in: working) {
+            let lbl = match.group1.trimmingCharacters(in: .whitespacesAndNewlines)
+            let val = match.group2.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !val.isEmpty {
+                extraPasswords.append(LabeledPassword(label: lbl, value: val))
+                if !badges.contains(lbl) {
+                    badges.append(lbl)
+                }
+            }
+            working.replaceSubrange(match.fullRange, with: " ")
+        }
+
+        // 4. 循环提取多行独立备注（如 备注1: xxx, 备注+8: xxx, 密保问题: xxx, 安全提示: xxx, 恢复助记词: xxx, 防钓鱼码: xxx）
+        let noteEntryPattern = #"(备注\+?\d*|密保问题|安全提示|恢复助记词|防钓鱼码)\s*[:：=]\s*([^\r\n\t]+?)(?=(?:\s+(?:网址|网站|账号|账户|密码|口令|资金密码|支付密码|用途|域名|接码平台|邮箱|手机号|UID|2fa|totp|备注\+?\d*|密保问题|安全提示|恢复助记词|防钓鱼码)\s*[:：=])|$|\r|\n)"#
+        while let match = matchTwoGroups(pattern: noteEntryPattern, in: working) {
+            let lbl = match.group1.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cnt = match.group2.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cnt.isEmpty {
+                noteEntries.append(NoteEntry(label: lbl, content: cnt))
+                if !badges.contains(lbl) {
+                    badges.append(lbl)
+                }
+            }
+            working.replaceSubrange(match.fullRange, with: " ")
+        }
+
+        // 5. 提取自定义账号标签与账号（如 用途: xxx, 域名: xxx, 接码平台: xxx, 邮箱: xxx, 手机号: xxx, 用户名: xxx, 账号: xxx, 账户: xxx, UID: xxx）
+        let accountPattern = #"(用途|域名|接码平台|邮箱|手机号|用户名|登录名|账号|账户|UID|user(?:name)?|acc(?:ount)?|email)\s*[:：=]\s*([^\s\t\r\n]+)"#
+        if let match = matchTwoGroups(pattern: accountPattern, in: working) {
+            accountLabel = match.group1.trimmingCharacters(in: .whitespacesAndNewlines)
+            username = match.group2.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !badges.contains(accountLabel) {
+                badges.append(accountLabel)
+            }
+            working.replaceSubrange(match.fullRange, with: " ")
+        }
+
+        // 6. 提取主密码标签与密码（如 登录密码: xxx, 口令: xxx, 密码: xxx, pass(?:word)?|pwd）
+        let passwordPattern = #"(登录密码|口令|密码|pass(?:word)?|pwd)\s*[:：=]\s*([^\s\t\r\n]+)"#
+        if let match = matchTwoGroups(pattern: passwordPattern, in: working) {
+            passwordLabel = match.group1.trimmingCharacters(in: .whitespacesAndNewlines)
+            password = match.group2.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !badges.contains(passwordLabel) {
+                badges.append(passwordLabel)
+            }
+            working.replaceSubrange(match.fullRange, with: " ")
+        }
+
+        // 7. 提取显式网址与标题
+        let urlPattern = #"(?:网址|网站|链接|url|link|site)\s*[:：=]\s*([^\s\t\r\n]+)"#
+        if let m = firstMatch(pattern: urlPattern, in: working) {
             url = m.group1.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !badges.contains("网址/域名") { badges.append("网址/域名") }
             working.replaceSubrange(m.fullRange, with: " ")
         }
-        if let m = firstMatch(pattern: #"(?:账号|账户|用户名|登录名|用户|邮箱|user(?:name)?|acc(?:ount)?|email|uid)\s*[:：=]\s*([^\s\t\n]+)"#, in: working) {
-            username = m.group1.trimmingCharacters(in: .whitespacesAndNewlines)
-            working.replaceSubrange(m.fullRange, with: " ")
-        }
-        if let m = firstMatch(pattern: #"(?:密码|口令|登录密码|pass(?:word)?|pwd)\s*[:：=]\s*([^\s\t\n]+)"#, in: working) {
-            password = m.group1.trimmingCharacters(in: .whitespacesAndNewlines)
-            working.replaceSubrange(m.fullRange, with: " ")
-        }
-        if let m = firstMatch(pattern: #"(?:标题|服务|平台|名称|title|service)\s*[:：=]\s*([^\s\t\n]+)"#, in: working) {
+        let titlePattern = #"(?:标题|服务|平台|名称|title|service)\s*[:：=]\s*([^\s\t\r\n]+)"#
+        if let m = firstMatch(pattern: titlePattern, in: working) {
             title = m.group1.trimmingCharacters(in: .whitespacesAndNewlines)
-            working.replaceSubrange(m.fullRange, with: " ")
-        }
-        if let m = firstMatch(pattern: #"(?:备注|说明|notes?|memo)\s*[:：=]\s*([^\n\r]+)"#, in: working) {
-            notes = m.group1.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !badges.contains("服务名称") { badges.append("服务名称") }
             working.replaceSubrange(m.fullRange, with: " ")
         }
 
-        // 4. 将剩余内容按空白、Tab、换行、竖线或逗号切分为词元 (Tokens)
+        // 8. 提取通用备注（若尚未被 noteEntryPattern 匹配）
+        let genNotePattern = #"(?:备注|说明|notes?|memo)\s*[:：=]\s*([^\r\n]+)"#
+        if let m = firstMatch(pattern: genNotePattern, in: working) {
+            let genNote = m.group1.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !genNote.isEmpty {
+                if !noteEntries.contains(where: { $0.content == genNote }) {
+                    noteEntries.append(NoteEntry(label: "备注", content: genNote))
+                }
+                if notes.isEmpty {
+                    notes = genNote
+                } else {
+                    notes = "\(notes)\n\(genNote)"
+                }
+                if !badges.contains("备注") { badges.append("备注") }
+            }
+            working.replaceSubrange(m.fullRange, with: " ")
+        }
+
+        // 9. 将剩余内容按空白、Tab、换行、竖线或逗号切分为词元 (Tokens)
         var tokens = splitIntoTokens(working)
 
-        // 5. 若尚未提取 URL，在 tokens 中寻找域名或网址 (排除包含 @ 的邮箱)
+        // 10. 若尚未提取 URL，在 tokens 中寻找域名或网址 (排除包含 @ 的邮箱)
         if url.isEmpty {
             if let idx = tokens.firstIndex(where: { isLikelyURLOrDomain($0) }) {
                 url = tokens.remove(at: idx)
             }
         }
 
-        // 6. 若尚未提取 2FA，检查 tokens 中是否有标准 16~64 位 Base32 密钥串
+        // 11. 若尚未提取 2FA，检查 tokens 中是否有标准 16~64 位 Base32 密钥串
         if totpSecret.isEmpty {
             if let idx = tokens.firstIndex(where: { isLikelyStandaloneBase32($0) }) {
                 totpSecret = tokens.remove(at: idx).uppercased()
             }
         }
 
-        // 7. 若尚未提取账号，优先在 tokens 中寻找邮箱或手机号
+        // 12. 若尚未提取账号，优先在 tokens 中寻找邮箱或手机号
         if username.isEmpty {
             if let idx = tokens.firstIndex(where: { isLikelyEmailOrPhone($0) }) {
                 username = tokens.remove(at: idx)
             }
         }
 
-        // 8. 按位置智能分配剩余词元
-        // 典型输入: "xxxx.com   xxx账号   xxx密码    2fa（xxxx）"
-        // 此时 url="xxxx.com", totpSecret="xxxx", 剩余 tokens=["xxx账号", "xxx密码"]
+        // 13. 按位置智能分配剩余词元
         if tokens.count == 1 {
             let tok = tokens.removeFirst()
             if username.isEmpty {
@@ -240,11 +355,9 @@ public enum SmartCredentialParser {
                 notes = notes.isEmpty ? joined : "\(notes) \(joined)"
             }
         } else if tokens.count >= 3 {
-            // 如果没有域名/URL 且也没有标题，第一个词元通常是服务名称（例如："币安主号  my_user  my_pass  2fa(xxx)"）
             if url.isEmpty && title.isEmpty {
                 title = tokens.removeFirst()
             } else if !url.isEmpty && title.isEmpty && !username.isEmpty {
-                // 如果已经有 URL 和邮箱账号，第一个可能是标题
                 title = tokens.removeFirst()
             }
             if username.isEmpty && !tokens.isEmpty {
@@ -259,7 +372,7 @@ public enum SmartCredentialParser {
             }
         }
 
-        // 9. 根据 URL 智能推导服务名称 (Title)
+        // 14. 根据 URL 智能推导服务名称 (Title)
         if title.isEmpty && !url.isEmpty {
             title = deriveServiceTitle(from: url)
         }
@@ -271,10 +384,16 @@ public enum SmartCredentialParser {
             }
         }
 
-        // 规范化 URL (如 xxxx.com 保持或补全)
         let normalizedURL = normalizeURL(url)
 
-        // 10. 智能分类识别
+        // 15. 备注与 noteEntries 同步
+        if notes.isEmpty && !noteEntries.isEmpty {
+            notes = noteEntries.map { "\($0.effectiveLabel)：\($0.content)" }.joined(separator: "\n")
+        } else if !notes.isEmpty && noteEntries.isEmpty {
+            noteEntries = [NoteEntry(label: "备注", content: notes)]
+        }
+
+        // 16. 智能分类识别
         let inferredCategory = inferCategory(
             title: title,
             url: normalizedURL,
@@ -283,36 +402,40 @@ public enum SmartCredentialParser {
             fallback: defaultCategory
         )
 
-        // 11. 汇总已识别标签
-        if !normalizedURL.isEmpty {
+        // 17. 汇总已识别标签
+        if !normalizedURL.isEmpty && !badges.contains("网址/域名") {
             badges.append("网址/域名")
-        } else if !title.isEmpty {
+        } else if !title.isEmpty && !badges.contains("服务名称") {
             badges.append("服务名称")
         }
-        if !username.isEmpty {
-            badges.append("登录账号")
+        if !username.isEmpty && !badges.contains(accountLabel) {
+            badges.append(accountLabel)
         }
-        if !password.isEmpty {
-            badges.append("登录密码")
+        if !password.isEmpty && !badges.contains(passwordLabel) {
+            badges.append(passwordLabel)
         }
-        if !totpSecret.isEmpty {
+        if !totpSecret.isEmpty && !badges.contains("2FA 密钥") {
             badges.append("2FA 密钥")
         }
-        if !notes.isEmpty {
-            badges.append("备注信息")
+        if !notes.isEmpty && !badges.contains("备注") && noteEntries.isEmpty {
+            badges.append("备注")
         }
 
         return ParsedCredential(
             title: title,
             url: normalizedURL,
+            accountLabel: accountLabel,
             username: username,
+            passwordLabel: passwordLabel,
             password: password,
+            extraPasswords: extraPasswords,
             totpSecret: totpSecret,
             totpDigits: totpDigits,
             totpPeriod: totpPeriod,
             totpAlgorithm: totpAlgorithm,
             category: inferredCategory,
             notes: notes,
+            noteEntries: noteEntries,
             recognizedFields: badges
         )
     }
@@ -329,19 +452,18 @@ public enum SmartCredentialParser {
             return single.hasAnyContent ? [single] : []
         }
 
-        // 判断是否每一行都是一条独立的完整记录（例如每行都包含 >= 3 个词元，或每行都有账号+密码）
         let lineParsed = lines.map { parse($0, defaultCategory: defaultCategory) }
         let allLinesAreCompleteRecords = lineParsed.allSatisfy { item in
             let fieldCount = (!item.url.isEmpty ? 1 : 0) +
                              (!item.username.isEmpty ? 1 : 0) +
                              (!item.password.isEmpty ? 1 : 0) +
-                             (!item.totpSecret.isEmpty ? 1 : 0)
-            return fieldCount >= 2 && (!item.username.isEmpty || !item.password.isEmpty)
+                             (!item.totpSecret.isEmpty ? 1 : 0) +
+                             (!item.extraPasswords.isEmpty ? 1 : 0)
+            return fieldCount >= 2 && (!item.username.isEmpty || !item.password.isEmpty || !item.extraPasswords.isEmpty)
         }
 
         if allLinesAreCompleteRecords {
             var results = lineParsed
-            // 如果第一行包含明确的域名或服务名称，而后续行省略了域名（仅写了 账号 密码 2fa），则自动归属到同一服务名下
             if let first = results.first, (!first.url.isEmpty || (!first.title.isEmpty && first.title != first.username)) {
                 for idx in 1..<results.count {
                     if results[idx].url.isEmpty && (results[idx].title.isEmpty || results[idx].title == results[idx].username) {
@@ -358,12 +480,10 @@ public enum SmartCredentialParser {
         }
     }
 
-
     /// 针对已有服务下快速追加子账号/密码/2FA 的解析（可选锁定使用同一密码）
     public static func parseSubAccount(_ rawInput: String, lockedPassword: String? = nil) -> CredentialEntry {
         let parsed = parse(rawInput)
         if let locked = lockedPassword {
-            // 锁定同密码模式：若用户输入了 2 个词（没有识别为 2FA），且没写密码标签，第一词为账号，若第二词不是密码而是备注或未提取 2FA
             let finalUser: String
             if !parsed.username.isEmpty {
                 finalUser = parsed.username
@@ -373,8 +493,11 @@ public enum SmartCredentialParser {
                 finalUser = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             return CredentialEntry(
+                accountLabel: parsed.accountLabel,
                 username: finalUser,
+                passwordLabel: parsed.passwordLabel,
                 password: locked,
+                extraPasswords: parsed.extraPasswords,
                 totpSecret: parsed.totpSecret,
                 totpDigits: parsed.totpDigits,
                 totpPeriod: parsed.totpPeriod,
@@ -393,6 +516,12 @@ public enum SmartCredentialParser {
         let group1: String
     }
 
+    private struct TwoGroupMatchResult {
+        let fullRange: Range<String.Index>
+        let group1: String
+        let group2: String
+    }
+
     private static func firstMatch(pattern: String, in text: String) -> RegexMatchResult? {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return nil
@@ -407,8 +536,26 @@ public enum SmartCredentialParser {
         return RegexMatchResult(fullRange: fullRange, group1: String(text[group1Range]))
     }
 
+    private static func matchTwoGroups(pattern: String, in text: String) -> TwoGroupMatchResult? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: nsRange),
+              match.numberOfRanges >= 3,
+              let fullRange = Range(match.range(at: 0), in: text),
+              let g1Range = Range(match.range(at: 1), in: text),
+              let g2Range = Range(match.range(at: 2), in: text) else {
+            return nil
+        }
+        return TwoGroupMatchResult(
+            fullRange: fullRange,
+            group1: String(text[g1Range]),
+            group2: String(text[g2Range])
+        )
+    }
+
     private static func splitIntoTokens(_ text: String) -> [String] {
-        // 将全角空格替换为普通空格，并按空白/Tab/换行/逗号/竖线切分
         let normalized = text.replacingOccurrences(of: "　", with: " ")
         let parts = normalized.components(separatedBy: CharacterSet(charactersIn: " \t\n\r|,;；"))
         return parts
@@ -422,7 +569,6 @@ public enum SmartCredentialParser {
         if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
             return true
         }
-        // 匹配常见域名格式，如 xxxx.com / binance.com / sub.domain.org/login
         let domainPattern = #"^[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(?:\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\.[a-zA-Z]{2,12}(?::\d+)?(?:\/[^\s]*)?$"#
         return lower.range(of: domainPattern, options: .regularExpression) != nil
     }
@@ -440,7 +586,6 @@ public enum SmartCredentialParser {
     }
 
     private static func isLikelyStandaloneBase32(_ token: String) -> Bool {
-        // 标准 TOTP Base32 密钥通常为 16~64 位仅含 A-Z 和 2-7 的大写字符串
         let upper = token.uppercased()
         guard upper.count >= 16 && upper.count <= 64 else { return false }
         let pattern = #"^[A-Z2-7]+=*$"#
@@ -466,7 +611,6 @@ public enum SmartCredentialParser {
             return rawURL.lowercased()
         }()
 
-        // 精确知名品牌映射
         let exactHostBrands: [(String, String)] = [
             ("binance.", "Binance"),
             ("okx.", "OKX"),
@@ -511,7 +655,6 @@ public enum SmartCredentialParser {
             }
         }
 
-        // 常规域名提取主干名，如 xxxx.com -> xxxx.com
         var strippedHost = host
         if strippedHost.hasPrefix("www.") {
             strippedHost = String(strippedHost.dropFirst(4))

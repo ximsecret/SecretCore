@@ -252,6 +252,43 @@ private func runSelfTestAndExit() -> Never {
                inheritedBatch.count == 3 &&
                inheritedBatch.allSatisfy { $0.title == "OKX" && $0.url == "okx.com" })
 
+    // 14. 智能提取自定义标签与连续备注解析测试 (用途/资金密码/备注1/备注+8)
+    let customLineRaw = "binance.com 用途: 交易主账号 登录密码: Pass123 资金密码: SecPay999 备注1: 助记词apple 备注+8: 密保banana"
+    let customParsed = SmartCredentialParser.parse(customLineRaw)
+    assertTest("智能提取自定义标签与连续备注 (用途/资金密码/备注1/备注+8)",
+               customParsed.accountLabel == "用途" &&
+               customParsed.username == "交易主账号" &&
+               customParsed.passwordLabel == "登录密码" &&
+               customParsed.password == "Pass123" &&
+               customParsed.extraPasswords.count == 1 &&
+               customParsed.extraPasswords.first?.label == "资金密码" &&
+               customParsed.extraPasswords.first?.value == "SecPay999" &&
+               customParsed.noteEntries.count == 2 &&
+               customParsed.noteEntries[0].label == "备注1" &&
+               customParsed.noteEntries[0].content == "助记词apple" &&
+               customParsed.noteEntries[1].label == "备注+8" &&
+               customParsed.noteEntries[1].content == "密保banana")
+
+    // 15. 多行备注排版模式与单条删除测试
+    var itemWithNotes = customParsed.toAccountItem()
+    assertTest("新建条目默认单列排版且包含 2 条独立备注",
+               itemWithNotes.notesLayout == .single &&
+               itemWithNotes.effectiveNoteEntries.count == 2)
+    itemWithNotes.updateNotesLayout(.double)
+    assertTest("备注排版模式自由切换至双列 (.double)",
+               itemWithNotes.notesLayout == .double)
+    let noteToDeleteId = itemWithNotes.effectiveNoteEntries[0].id
+    itemWithNotes.removeNoteEntry(id: noteToDeleteId)
+    assertTest("单条独立备注彻底删除并自动同步文本",
+               itemWithNotes.effectiveNoteEntries.count == 1 &&
+               itemWithNotes.effectiveNoteEntries[0].label == "备注+8")
+
+    // 16. 凭据彻底删除 2FA 测试
+    var entryWith2FA = CredentialEntry(username: "u1", password: "p1", totpSecret: "JBSWY3DPEHPK3PXP")
+    assertTest("凭据初始具备 2FA 属性", entryWith2FA.hasTOTP)
+    entryWith2FA.clearTOTP()
+    assertTest("彻底删除并清空凭据 2FA (totpSecret 为空)", !entryWith2FA.hasTOTP && entryWith2FA.totpSecret.isEmpty)
+
     // 7. 更换主密码安全往返测试 (验证现有密码机制)
     do {
         let initialPass = "OldMasterPassword123"

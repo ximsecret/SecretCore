@@ -177,11 +177,77 @@ public struct PresetAccountIcon: Identifiable, Hashable {
     ]
 }
 
+// MARK: - 单账号下多密码模型（支持一个账号拥有主密码、资金密码、支付密码、API Key 等多个不同密码）
+public struct LabeledPassword: Codable, Identifiable, Equatable, Hashable {
+    public var id: UUID
+    public var label: String
+    public var value: String
+    public var createdAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        label: String = "密码",
+        value: String = "",
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.label = label
+        self.value = value
+        self.createdAt = createdAt
+    }
+
+    public var effectiveLabel: String {
+        var trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix("：") || trimmed.hasSuffix(":") {
+            trimmed = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed.isEmpty ? "密码" : trimmed
+    }
+}
+
+// MARK: - 多行安全备注模型（一行一条，支持自定义标签如 备注1、备注+8、密保问题）
+public struct NoteEntry: Codable, Identifiable, Equatable, Hashable {
+    public var id: UUID
+    public var label: String
+    public var content: String
+    public var createdAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        label: String = "备注",
+        content: String = "",
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.label = label
+        self.content = content
+        self.createdAt = createdAt
+    }
+
+    public var effectiveLabel: String {
+        var trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix("：") || trimmed.hasSuffix(":") {
+            trimmed = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed.isEmpty ? "备注" : trimmed
+    }
+}
+
+// MARK: - 常用预设标签词库
+public enum CredentialLabelPresets {
+    public static let accountPresets = ["账号", "用途", "域名", "接码平台", "邮箱", "手机号", "用户名", "UID"]
+    public static let passwordPresets = ["密码", "登录密码", "资金密码", "支付密码", "交易密码", "API Key", "二级密码", "PIN码"]
+    public static let notePresets = ["备注", "备注1", "备注2", "备注+8", "密保问题", "安全提示", "恢复助记词", "防钓鱼码"]
+}
+
 // MARK: - 单条子账号凭据（支持同一名称下挂载多个不同密码、多个账号及各自独立的 2FA）
 public struct CredentialEntry: Codable, Identifiable, Equatable, Hashable {
     public var id: UUID
+    public var accountLabel: String
     public var username: String
+    public var passwordLabel: String
     public var password: String
+    public var extraPasswords: [LabeledPassword]
     public var totpSecret: String
     public var totpDigits: Int
     public var totpPeriod: Int
@@ -192,8 +258,11 @@ public struct CredentialEntry: Codable, Identifiable, Equatable, Hashable {
 
     public init(
         id: UUID = UUID(),
+        accountLabel: String = "账号",
         username: String = "",
+        passwordLabel: String = "密码",
         password: String = "",
+        extraPasswords: [LabeledPassword] = [],
         totpSecret: String = "",
         totpDigits: Int = 6,
         totpPeriod: Int = 30,
@@ -203,8 +272,11 @@ public struct CredentialEntry: Codable, Identifiable, Equatable, Hashable {
         updatedAt: Date = Date()
     ) {
         self.id = id
+        self.accountLabel = accountLabel
         self.username = username
+        self.passwordLabel = passwordLabel
         self.password = password
+        self.extraPasswords = extraPasswords
         self.totpSecret = totpSecret
         self.totpDigits = totpDigits
         self.totpPeriod = totpPeriod
@@ -214,12 +286,105 @@ public struct CredentialEntry: Codable, Identifiable, Equatable, Hashable {
         self.updatedAt = updatedAt
     }
 
+    public var effectiveAccountLabel: String {
+        var trimmed = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix("：") || trimmed.hasSuffix(":") {
+            trimmed = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed.isEmpty ? "账号" : trimmed
+    }
+
+    public var effectivePasswordLabel: String {
+        var trimmed = passwordLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix("：") || trimmed.hasSuffix(":") {
+            trimmed = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed.isEmpty ? "密码" : trimmed
+    }
+
     public var hasTOTP: Bool {
         !totpSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     public var hasPassword: Bool {
-        !password.isEmpty
+        !password.isEmpty || !extraPasswords.isEmpty
+    }
+
+    public mutating func clearTOTP() {
+        totpSecret = ""
+        updatedAt = Date()
+    }
+
+    public mutating func addExtraPassword(label: String = "密码", value: String = "") {
+        extraPasswords.append(LabeledPassword(label: label, value: value))
+        updatedAt = Date()
+    }
+
+    public mutating func removeExtraPassword(id: UUID) {
+        extraPasswords.removeAll { $0.id == id }
+        updatedAt = Date()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, accountLabel, username, passwordLabel, password, extraPasswords
+        case totpSecret, totpDigits, totpPeriod, totpAlgorithm
+        case notes, createdAt, updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        accountLabel = (try? c.decode(String.self, forKey: .accountLabel)) ?? "账号"
+        username = (try? c.decode(String.self, forKey: .username)) ?? ""
+        passwordLabel = (try? c.decode(String.self, forKey: .passwordLabel)) ?? "密码"
+        password = (try? c.decode(String.self, forKey: .password)) ?? ""
+        extraPasswords = (try? c.decode([LabeledPassword].self, forKey: .extraPasswords)) ?? []
+        totpSecret = (try? c.decode(String.self, forKey: .totpSecret)) ?? ""
+        totpDigits = (try? c.decode(Int.self, forKey: .totpDigits)) ?? 6
+        totpPeriod = (try? c.decode(Int.self, forKey: .totpPeriod)) ?? 30
+        totpAlgorithm = (try? c.decode(TOTPAlgorithm.self, forKey: .totpAlgorithm)) ?? .sha1
+        notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
+        createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? Date()
+        updatedAt = (try? c.decode(Date.self, forKey: .updatedAt)) ?? Date()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(accountLabel, forKey: .accountLabel)
+        try c.encode(username, forKey: .username)
+        try c.encode(passwordLabel, forKey: .passwordLabel)
+        try c.encode(password, forKey: .password)
+        try c.encode(extraPasswords, forKey: .extraPasswords)
+        try c.encode(totpSecret, forKey: .totpSecret)
+        try c.encode(totpDigits, forKey: .totpDigits)
+        try c.encode(totpPeriod, forKey: .totpPeriod)
+        try c.encode(totpAlgorithm, forKey: .totpAlgorithm)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(updatedAt, forKey: .updatedAt)
+    }
+}
+
+// MARK: - 备注排版模式（一行单条 vs 一行两条自由切换）
+public enum NotesLayoutMode: String, Codable, CaseIterable, Identifiable {
+    case single = "single" // 一行单条（全宽）
+    case double = "double" // 一行两条（双列并排）
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .single: return "一行单条"
+        case .double: return "一行两条"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .single: return "rectangle.grid.1x2"
+        case .double: return "rectangle.grid.2x2"
+        }
     }
 }
 
@@ -241,6 +406,13 @@ public struct PasswordCredentialGroup: Identifiable, Equatable {
     public var strength: (strength: PasswordStrength, entropyBits: Int) {
         PasswordGenerator.evaluateStrength(password)
     }
+
+    public var effectivePasswordLabel: String {
+        if let first = entries.first(where: { !$0.passwordLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return first.effectivePasswordLabel
+        }
+        return "密码"
+    }
 }
 
 public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
@@ -256,6 +428,8 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
     public var entries: [CredentialEntry]
 
     public var notes: String
+    public var noteEntries: [NoteEntry]
+    public var notesLayout: NotesLayoutMode
     public var customFields: [CustomField]
     public var createdAt: Date
     public var updatedAt: Date
@@ -333,6 +507,8 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
         totpPeriod: Int = 30,
         totpAlgorithm: TOTPAlgorithm = .sha1,
         notes: String = "",
+        noteEntries: [NoteEntry]? = nil,
+        notesLayout: NotesLayoutMode = .single,
         customFields: [CustomField] = [],
         entries: [CredentialEntry]? = nil,
         createdAt: Date = Date(),
@@ -347,8 +523,30 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
         self.isFavorite = isFavorite
         self.notes = notes
         self.customFields = customFields
+        self.notesLayout = notesLayout
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+
+        if let explicitNotes = noteEntries, !explicitNotes.isEmpty {
+            self.noteEntries = explicitNotes
+        } else if !notes.isEmpty {
+            let lines = notes.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            var list: [NoteEntry] = []
+            for line in lines {
+                if let colon = line.firstIndex(of: "：") ?? line.firstIndex(of: ":") {
+                    let lbl = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+                    let cnt = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                    list.append(NoteEntry(label: lbl.isEmpty ? "备注" : lbl, content: cnt))
+                } else {
+                    list.append(NoteEntry(label: "备注", content: line))
+                }
+            }
+            self.noteEntries = list.isEmpty ? [NoteEntry(label: "备注", content: notes)] : list
+        } else {
+            self.noteEntries = []
+        }
 
         if let explicitEntries = entries, !explicitEntries.isEmpty {
             self.entries = explicitEntries
@@ -371,7 +569,7 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, title, username, password, url, category, customTag, customIcon, isFavorite
         case totpSecret, totpDigits, totpPeriod, totpAlgorithm
-        case notes, customFields, createdAt, updatedAt
+        case notes, noteEntries, notesLayout, customFields, createdAt, updatedAt
         case entries
     }
 
@@ -385,6 +583,28 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
         customIcon = (try? c.decode(String.self, forKey: .customIcon)) ?? ""
         isFavorite = (try? c.decode(Bool.self, forKey: .isFavorite)) ?? false
         notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
+        if let decodedNoteEntries = try? c.decode([NoteEntry].self, forKey: .noteEntries),
+           !decodedNoteEntries.isEmpty {
+            noteEntries = decodedNoteEntries
+        } else if !notes.isEmpty {
+            let lines = notes.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            var list: [NoteEntry] = []
+            for line in lines {
+                if let colon = line.firstIndex(of: "：") ?? line.firstIndex(of: ":") {
+                    let lbl = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+                    let cnt = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                    list.append(NoteEntry(label: lbl.isEmpty ? "备注" : lbl, content: cnt))
+                } else {
+                    list.append(NoteEntry(label: "备注", content: line))
+                }
+            }
+            noteEntries = list.isEmpty ? [NoteEntry(label: "备注", content: notes)] : list
+        } else {
+            noteEntries = []
+        }
+        notesLayout = (try? c.decode(NotesLayoutMode.self, forKey: .notesLayout)) ?? .single
         customFields = (try? c.decode([CustomField].self, forKey: .customFields)) ?? []
         let decodedCreatedAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? Date()
         let decodedUpdatedAt = (try? c.decode(Date.self, forKey: .updatedAt)) ?? Date()
@@ -432,6 +652,8 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
         try c.encode(totpPeriod, forKey: .totpPeriod)
         try c.encode(totpAlgorithm, forKey: .totpAlgorithm)
         try c.encode(notes, forKey: .notes)
+        try c.encode(noteEntries, forKey: .noteEntries)
+        try c.encode(notesLayout, forKey: .notesLayout)
         try c.encode(customFields, forKey: .customFields)
         try c.encode(entries, forKey: .entries)
         try c.encode(createdAt, forKey: .createdAt)
@@ -469,16 +691,12 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
 
     /// 所有非空子账号名称摘要（用于列表卡片展示，统一格式为：账号：xxx）
     public var accountsSummaryText: String {
-        let names = entries
-            .map { $0.username.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if names.isEmpty {
+        let validEntries = entries.filter { !$0.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if validEntries.isEmpty {
             return url.isEmpty ? "（未填写账号）" : "网址：\(url)"
         }
-        if names.count == 1 {
-            return "账号：\(names[0])"
-        }
-        return "账号：\(names.joined(separator: "  ·  "))"
+        let list = validEntries.map { "\($0.effectiveAccountLabel)：\($0.username.trimmingCharacters(in: .whitespacesAndNewlines))" }
+        return list.joined(separator: "  ·  ")
     }
 
     /// 向当前名称下追加或更新一条子凭据
@@ -513,6 +731,17 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
             if !newEntry.notes.isEmpty {
                 entries[idx].notes = newEntry.notes
             }
+            if newEntry.accountLabel != "账号" && !newEntry.accountLabel.isEmpty {
+                entries[idx].accountLabel = newEntry.accountLabel
+            }
+            if newEntry.passwordLabel != "密码" && !newEntry.passwordLabel.isEmpty {
+                entries[idx].passwordLabel = newEntry.passwordLabel
+            }
+            for extra in newEntry.extraPasswords {
+                if !entries[idx].extraPasswords.contains(where: { $0.label == extra.label && $0.value == extra.value }) {
+                    entries[idx].extraPasswords.append(extra)
+                }
+            }
             entries[idx].updatedAt = Date()
             updatedAt = Date()
             return
@@ -522,11 +751,92 @@ public struct AccountItem: Codable, Identifiable, Equatable, Hashable {
         updatedAt = Date()
     }
 
+    public var effectiveNotesLayout: NotesLayoutMode {
+        notesLayout
+    }
+
+    public var effectiveNoteEntries: [NoteEntry] {
+        if !noteEntries.isEmpty {
+            return noteEntries
+        }
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let lines = trimmed.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        var list: [NoteEntry] = []
+        for line in lines {
+            if let colon = line.firstIndex(of: "：") ?? line.firstIndex(of: ":") {
+                let lbl = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+                let cnt = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                list.append(NoteEntry(label: lbl.isEmpty ? "备注" : lbl, content: cnt))
+            } else {
+                list.append(NoteEntry(label: "备注", content: line))
+            }
+        }
+        return list.isEmpty ? [NoteEntry(label: "备注", content: trimmed)] : list
+    }
+
+    public mutating func clearEntryTOTP(entryId: UUID) {
+        if let idx = entries.firstIndex(where: { $0.id == entryId }) {
+            entries[idx].clearTOTP()
+            if entries[idx].id == entries.first?.id || !hasTOTP {
+                totpSecret = entries.first?.totpSecret ?? ""
+            }
+            updatedAt = Date()
+        }
+    }
+
+    public mutating func updateNotesLayout(_ layout: NotesLayoutMode) {
+        notesLayout = layout
+        updatedAt = Date()
+    }
+
+    public mutating func updateNoteEntries(_ list: [NoteEntry]) {
+        noteEntries = list
+        syncNotesFromEntries()
+        updatedAt = Date()
+    }
+
+    public mutating func syncNotesFromEntries() {
+        if !noteEntries.isEmpty {
+            notes = noteEntries.map { "\($0.effectiveLabel)：\($0.content)" }.joined(separator: "\n")
+        } else {
+            notes = ""
+        }
+    }
+
+    public mutating func removeNoteEntry(id: UUID) {
+        if noteEntries.isEmpty {
+            noteEntries = effectiveNoteEntries
+        }
+        noteEntries.removeAll { $0.id == id }
+        syncNotesFromEntries()
+        updatedAt = Date()
+    }
+
+    public mutating func removeExtraPassword(entryId: UUID, extraId: UUID) {
+        if let idx = entries.firstIndex(where: { $0.id == entryId }) {
+            entries[idx].removeExtraPassword(id: extraId)
+            updatedAt = Date()
+        }
+    }
+
+    public mutating func addExtraPassword(entryId: UUID, label: String = "密码", value: String = "") {
+        if let idx = entries.firstIndex(where: { $0.id == entryId }) {
+            entries[idx].addExtraPassword(label: label, value: value)
+            updatedAt = Date()
+        }
+    }
+
     public mutating func removeEntry(id: UUID) {
         entries.removeAll { $0.id == id }
         if entries.isEmpty {
             entries.append(CredentialEntry())
         }
+        username = entries.first?.username ?? ""
+        password = entries.first?.password ?? ""
+        totpSecret = entries.first?.totpSecret ?? ""
         updatedAt = Date()
     }
 

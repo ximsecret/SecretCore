@@ -79,6 +79,8 @@ public struct MainVaultView: View {
                     HStack(spacing: 5) {
                         Text("SecretCore")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize()
                         Text("极光秘核")
                             .font(.system(size: 9, weight: .bold))
                             .padding(.horizontal, 4)

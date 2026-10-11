@@ -379,13 +379,60 @@ public final class VaultStore: ObservableObject {
         recordActivity()
     }
 
+    public func updateNotesLayout(itemId: UUID, layout: NotesLayoutMode) {
+        guard let idx = items.firstIndex(where: { $0.id == itemId }) else { return }
+        items[idx].updateNotesLayout(layout)
+        try? saveVault()
+        recordActivity()
+    }
+
+    public func updateNoteEntries(itemId: UUID, entries: [NoteEntry]) {
+        guard let idx = items.firstIndex(where: { $0.id == itemId }) else { return }
+        items[idx].updateNoteEntries(entries)
+        try? saveVault()
+        recordActivity()
+    }
+
+    public func removeNoteEntry(fromItemId id: UUID, noteId: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].removeNoteEntry(id: noteId)
+        try? saveVault()
+        recordActivity()
+        showStatusToast("已彻底删除该条备注（不保留）")
+    }
+
+    public func clearEntryTOTP(itemId: UUID, entryId: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == itemId }) else { return }
+        items[idx].clearEntryTOTP(entryId: entryId)
+        cachedCodes2FA.removeValue(forKey: entryId)
+        if !items[idx].hasTOTP {
+            cachedCodes2FA.removeValue(forKey: itemId)
+        }
+        try? saveVault()
+        update2FACodes()
+        recordActivity()
+        showStatusToast("已彻底删除并清空该 2FA 动态码（不保留）")
+    }
+
     public func removeEntry(fromItemId id: UUID, entryId: UUID) {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         items[idx].removeEntry(id: entryId)
         cachedCodes2FA.removeValue(forKey: entryId)
+        if !items[idx].hasTOTP {
+            cachedCodes2FA.removeValue(forKey: id)
+        }
         try? saveVault()
         update2FACodes()
         recordActivity()
+        showStatusToast("已彻底删除该账号信息（不保留）")
+    }
+
+    public func removeExtraPassword(fromItemId id: UUID, entryId: UUID, extraId: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].removeExtraPassword(entryId: entryId, extraId: extraId)
+        try? saveVault()
+        recordActivity()
+        showStatusToast("已彻底删除该从属密码（不保留）")
     }
 
     public func removePasswordGroup(fromItemId id: UUID, password: String) {
@@ -461,6 +508,14 @@ public final class VaultStore: ObservableObject {
                 items[idx].addOrUpdateEntry(entry)
                 if items[idx].url.isEmpty && !parsed.url.isEmpty {
                     items[idx].url = parsed.url
+                }
+                if !parsed.noteEntries.isEmpty {
+                    for n in parsed.noteEntries {
+                        if !items[idx].effectiveNoteEntries.contains(where: { $0.content == n.content }) {
+                            items[idx].noteEntries.append(n)
+                        }
+                    }
+                    items[idx].syncNotesFromEntries()
                 }
                 lastTargetId = items[idx].id
                 if !mergedTitles.contains(items[idx].title) {
@@ -548,10 +603,20 @@ public final class VaultStore: ObservableObject {
             item.notes.lowercased().contains(query) ||
             item.category.rawValue.lowercased().contains(query) ||
             item.normalizedCustomTag.lowercased().contains(query) ||
+            item.effectiveNoteEntries.contains(where: {
+                $0.effectiveLabel.lowercased().contains(query) ||
+                $0.content.lowercased().contains(query)
+            }) ||
             item.entries.contains(where: {
                 $0.username.lowercased().contains(query) ||
+                $0.effectiveAccountLabel.lowercased().contains(query) ||
+                $0.effectivePasswordLabel.lowercased().contains(query) ||
                 $0.password.lowercased().contains(query) ||
-                $0.notes.lowercased().contains(query)
+                $0.notes.lowercased().contains(query) ||
+                $0.extraPasswords.contains(where: {
+                    $0.effectiveLabel.lowercased().contains(query) ||
+                    $0.value.lowercased().contains(query)
+                })
             })
         }
     }

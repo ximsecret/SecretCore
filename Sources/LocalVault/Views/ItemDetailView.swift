@@ -133,7 +133,7 @@ public struct ItemDetailView: View {
                 }
 
                 // 5. 安全备注与说明
-                if !item.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !item.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !item.noteEntries.isEmpty {
                     notesSection
                 }
 
@@ -168,6 +168,7 @@ public struct ItemDetailView: View {
                         Text(item.title)
                             .font(.system(size: 23, weight: .bold, design: .rounded))
                             .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
 
                         if item.isFavorite {
                             Image(systemName: "star.fill")
@@ -190,23 +191,9 @@ public struct ItemDetailView: View {
                                 .fill(Color(red: 0.05, green: 0.48, blue: 0.92).opacity(0.12))
                         )
 
-                        // 科技安全态势指示徽章（发光绿点 + 本地隔离）
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color.green)
-                                .frame(width: 6, height: 6)
-                                .shadow(color: Color.green.opacity(0.8), radius: 3, x: 0, y: 0)
-                            Text("本地物理沙箱 · AES-256 GCM 隔离保护")
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3.5)
-                        .background(Capsule().fill(Color.green.opacity(0.08)))
-                        .overlay(Capsule().strokeBorder(Color.green.opacity(0.20), lineWidth: 0.8))
                     }
 
-                    // 所属分类切换菜单
+                    // 所属分类切换菜单与安全态势
                     HStack(spacing: 8) {
                         Menu {
                             Text("切换所属分类")
@@ -235,6 +222,21 @@ public struct ItemDetailView: View {
                         }
                         .menuStyle(.borderlessButton)
                         .fixedSize()
+
+                        // 科技安全态势指示徽章（发光绿点 + 本地隔离）
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 6, height: 6)
+                                .shadow(color: Color.green.opacity(0.8), radius: 3, x: 0, y: 0)
+                            Text("本地物理沙箱 · AES-256 GCM 隔离保护")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3.5)
+                        .background(Capsule().fill(Color.green.opacity(0.08)))
+                        .overlay(Capsule().strokeBorder(Color.green.opacity(0.20), lineWidth: 0.8))
                     }
                 }
 
@@ -886,12 +888,6 @@ public struct ItemDetailView: View {
             // 右列：密码安全评级与熵值卡片 (固定宽度 260pt，高度 50pt，与 2FA 动态码卡片完全对称)
             passwordStrengthCard(eval: eval)
 
-            // 右侧占位槽（若总账号数 > 1，固定 20×50 槽位与下属账号行删除按钮绝对严格像素级对齐）
-            if item.entries.count > 1 {
-                Color.clear
-                    .frame(width: 20, height: 50)
-                    .fixedSize()
-            }
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
@@ -907,7 +903,7 @@ public struct ItemDetailView: View {
             guard !group.password.isEmpty else { return }
             copyWithFeedback(
                 text: group.password,
-                label: "密码：\(group.password)",
+                label: "\(group.effectivePasswordLabel)：\(group.password)",
                 key: pwdCopyKey
             )
         }) {
@@ -924,7 +920,7 @@ public struct ItemDetailView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 4) {
-                        Text("密码：")
+                        Text("\(group.effectivePasswordLabel)：")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(Color(red: 0.90, green: 0.50, blue: 0.10))
 
@@ -974,7 +970,16 @@ public struct ItemDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("点击直接复制密码：\(group.password)")
+        .help("点击直接复制\(group.effectivePasswordLabel)：\(group.password)")
+        .contextMenu {
+            Button("复制\(group.effectivePasswordLabel)") {
+                copyWithFeedback(
+                    text: group.password,
+                    label: "\(group.effectivePasswordLabel)：\(group.password)",
+                    key: pwdCopyKey
+                )
+            }
+        }
     }
 
     // MARK: - 密码安全评级卡片
@@ -1029,26 +1034,18 @@ public struct ItemDetailView: View {
         let isUserCopied = (vm.lastCopiedKey == userCopyKey)
         let isTFACopied = (vm.lastCopiedKey == tfaCopyKey)
 
-        return HStack(spacing: 12) {
-            // 1. 左列：账号区块（统一提示：账号：xxx，整块点击直接复制账号，与密码框严格等宽等高）
-            accountMainBox(entry: entry, userCopyKey: userCopyKey, isUserCopied: isUserCopied)
+        return VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                // 1. 左列：账号区块（统一提示：账号：xxx，整块点击直接复制账号，与密码框严格等宽等高）
+                accountMainBox(entry: entry, userCopyKey: userCopyKey, isUserCopied: isUserCopied, totalEntriesInItem: totalEntriesInItem)
 
-            // 2. 右列：对应的 2FA 动态码区块（统一提示：2FA：xxx，固定宽度 260pt，高度 50pt，背景全高充满进度条）
-            accountTOTPCard(entry: entry, tfaCopyKey: tfaCopyKey, isTFACopied: isTFACopied)
+                // 2. 右列：对应的 2FA 动态码区块（统一提示：2FA：xxx，固定宽度 260pt，高度 50pt，背景全高充满进度条）
+                accountTOTPCard(entry: entry, tfaCopyKey: tfaCopyKey, isTFACopied: isTFACopied)
+            }
 
-            // 3. 删除该子账号按钮（当总账号数 > 1 时可单独移除某一个子账号，固定 20×50 槽位与密码行完全对齐）
-            if totalEntriesInItem > 1 {
-                Button(action: {
-                    store.removeEntry(fromItemId: item.id, entryId: entry.id)
-                }) {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary.opacity(0.55))
-                }
-                .buttonStyle(.plain)
-                .frame(width: 20, height: 50)
-                .fixedSize()
-                .help("移除此子账号")
+            // 3. 从属额外密码（如资金密码、支付密码、API Key 等，明文显示，点击直接复制，右列保持 260pt 对齐）
+            ForEach(entry.extraPasswords) { extra in
+                extraPasswordRow(entry: entry, extra: extra)
             }
         }
         .padding(.horizontal, 14)
@@ -1056,12 +1053,17 @@ public struct ItemDetailView: View {
     }
 
     // MARK: - 账号凭据主框
-    private func accountMainBox(entry: CredentialEntry, userCopyKey: String, isUserCopied: Bool) -> some View {
+    private func accountMainBox(
+        entry: CredentialEntry,
+        userCopyKey: String,
+        isUserCopied: Bool,
+        totalEntriesInItem: Int
+    ) -> some View {
         Button(action: {
             guard !entry.username.isEmpty else { return }
             copyWithFeedback(
                 text: entry.username,
-                label: "账号：\(entry.username)",
+                label: "\(entry.effectiveAccountLabel)：\(entry.username)",
                 key: userCopyKey
             )
         }) {
@@ -1078,7 +1080,7 @@ public struct ItemDetailView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 4) {
-                        Text("账号：")
+                        Text("\(entry.effectiveAccountLabel)：")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(item.category.tintColor)
 
@@ -1137,7 +1139,24 @@ public struct ItemDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("点击直接复制账号：\(entry.username)")
+        .help("点击直接复制\(entry.effectiveAccountLabel)：\(entry.username)")
+        .contextMenu {
+            Button("复制\(entry.effectiveAccountLabel)") {
+                copyWithFeedback(
+                    text: entry.username,
+                    label: "\(entry.effectiveAccountLabel)：\(entry.username)",
+                    key: userCopyKey
+                )
+            }
+            if totalEntriesInItem > 1 {
+                Divider()
+                Button(role: .destructive) {
+                    store.removeEntry(fromItemId: item.id, entryId: entry.id)
+                } label: {
+                    Label("彻底删除此账号（不保留）", systemImage: "trash")
+                }
+            }
+        }
     }
 
     // MARK: - 账号对应 2FA 卡片
@@ -1272,6 +1291,22 @@ public struct ItemDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .help("点击直接复制 2FA：\(copyValue)")
+                .contextMenu {
+                    Button("复制 2FA 动态码") {
+                        copyWithFeedback(
+                            text: copyValue,
+                            label: "2FA：\(copyValue)",
+                            key: tfaCopyKey
+                        )
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        store.clearEntryTOTP(itemId: item.id, entryId: entry.id)
+                    } label: {
+                        Label("彻底删除并清空此 2FA（不保留）", systemImage: "trash")
+                    }
+                }
+
             } else {
                 // 未配置 2FA 时的统一 260pt 轻量占位卡片 (保证宽度绝对守恒与对齐！)
                 HStack(spacing: 6) {
@@ -1353,51 +1388,258 @@ public struct ItemDetailView: View {
         }
     }
 
-    // MARK: - 5. 备注说明（点击也可一键复制）
-    private var notesSection: some View {
-        let noteKey = "section_notes"
-        let isCopied = (vm.lastCopiedKey == noteKey)
+    // MARK: - 从属额外密码行（资金密码、支付密码、API Key 等，明文展示，点击复制，右列 260pt 对齐）
+    private func extraPasswordRow(entry: CredentialEntry, extra: LabeledPassword) -> some View {
+        let copyKey = "extra_\(extra.id.uuidString)"
+        let isCopied = (vm.lastCopiedKey == copyKey)
 
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "doc.text.fill")
-                    .foregroundColor(item.category.tintColor)
-                Text("安全备注 / 恢复码说明（点击直接复制）")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.secondary)
-            }
-
+        return HStack(spacing: 12) {
+            // 左列：额外密码主框（与账号框/密码框严格等宽等高）
             Button(action: {
-                copyWithFeedback(text: item.notes, label: "备注：\(item.notes)", key: noteKey)
+                guard !extra.value.isEmpty else { return }
+                copyWithFeedback(
+                    text: extra.value,
+                    label: "\(extra.effectiveLabel)：\(extra.value)",
+                    key: copyKey
+                )
             }) {
-                HStack {
-                    Text(item.notes)
-                        .font(.system(size: 13))
-                        .foregroundColor(.primary)
-                        .lineSpacing(4)
-                        .multilineTextAlignment(.leading)
-                    Spacer()
-                    HStack(spacing: 4) {
-                        Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11))
-                        Text(isCopied ? "已复制" : "复制")
-                            .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(isCopied ? Color.green.opacity(0.16) : Color.purple.opacity(0.14))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: isCopied ? "checkmark" : "key.badge.ellipsis")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(isCopied ? .green : .purple)
                     }
-                    .foregroundColor(isCopied ? .green : .secondary)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 4) {
+                            Text("\(extra.effectiveLabel)：")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.purple)
+
+                            Text(extra.value.isEmpty ? "（未设置）" : extra.value)
+                                .font(.system(size: 13.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(extra.value.isEmpty ? .secondary : .primary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    Spacer(minLength: 6)
+
+                    if !extra.value.isEmpty {
+                        HStack(spacing: 3) {
+                            Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 10.5))
+                            Text(isCopied ? "已复制" : "复制")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(isCopied ? .green : .secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3.5)
+                        .background(
+                            Capsule()
+                                .fill(isCopied ? Color.green.opacity(0.12) : Color.secondary.opacity(0.08))
+                        )
+                    }
                 }
-                .padding(16)
+                .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 50)
                 .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(14)
+                .cornerRadius(12)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(isCopied ? Color.green.opacity(0.4) : Color.purple.opacity(0.25), lineWidth: 1)
                 )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help("点击直接复制\(extra.effectiveLabel)：\(extra.value)")
+            .contextMenu {
+                Button("复制\(extra.effectiveLabel)") {
+                    copyWithFeedback(
+                        text: extra.value,
+                        label: "\(extra.effectiveLabel)：\(extra.value)",
+                        key: copyKey
+                    )
+                }
+                Divider()
+                Button(role: .destructive) {
+                    store.removeExtraPassword(fromItemId: item.id, entryId: entry.id, extraId: extra.id)
+                } label: {
+                    Label("彻底删除此\(extra.effectiveLabel)（不保留）", systemImage: "trash")
+                }
+            }
+
+            // 右列：保持 260pt 对齐的占位说明卡片
+            HStack(spacing: 6) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary.opacity(0.7))
+                Text("从属二级凭据 · 独立密级")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .frame(width: 260, height: 50)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                    .foregroundColor(Color.secondary.opacity(0.18))
+            )
         }
     }
+
+
+    // MARK: - 5. 安全多备注（支持一行一条/一行两条自由切换，点击复制）
+    private var notesSection: some View {
+        let noteEntries = item.effectiveNoteEntries
+        guard !noteEntries.isEmpty else { return AnyView(EmptyView()) }
+
+        return AnyView(
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text.fill")
+                        .foregroundColor(item.category.tintColor)
+                    Text("安全备注 / 备用信息（点击直接复制）")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    // 排版切换器：一行单条 vs 一行两条
+                    HStack(spacing: 2) {
+                        Button(action: {
+                            store.updateNotesLayout(itemId: item.id, layout: .single)
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "rectangle.grid.1x2.fill")
+                                    .font(.system(size: 10))
+                                Text("一行单条")
+                                    .font(.system(size: 10.5, weight: .medium))
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(
+                                Capsule()
+                                    .fill(item.effectiveNotesLayout == .single ? item.category.tintColor.opacity(0.18) : Color.clear)
+                            )
+                            .foregroundColor(item.effectiveNotesLayout == .single ? item.category.tintColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            store.updateNotesLayout(itemId: item.id, layout: .double)
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "square.grid.2x2.fill")
+                                    .font(.system(size: 10))
+                                Text("一行两条")
+                                    .font(.system(size: 10.5, weight: .medium))
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(
+                                Capsule()
+                                    .fill(item.effectiveNotesLayout == .double ? item.category.tintColor.opacity(0.18) : Color.clear)
+                            )
+                            .foregroundColor(item.effectiveNotesLayout == .double ? item.category.tintColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(2)
+                    .background(Capsule().fill(Color(NSColor.controlBackgroundColor)))
+                    .overlay(Capsule().stroke(Color.secondary.opacity(0.18), lineWidth: 0.8))
+                }
+
+                if item.effectiveNotesLayout == .double {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                        ForEach(noteEntries) { entry in
+                            singleNoteCard(entry: entry)
+                        }
+                    }
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(noteEntries) { entry in
+                            singleNoteCard(entry: entry)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private func singleNoteCard(entry: NoteEntry) -> some View {
+        let copyKey = "note_\(entry.id.uuidString)"
+        let isCopied = (vm.lastCopiedKey == copyKey)
+
+        return Button(action: {
+            copyWithFeedback(
+                text: entry.content,
+                label: "\(entry.effectiveLabel)：\(entry.content)",
+                key: copyKey
+            )
+        }) {
+            HStack(alignment: .top, spacing: 8) {
+                Text("\(entry.effectiveLabel)：")
+                    .font(.system(size: 12.5, weight: .bold))
+                    .foregroundColor(item.category.tintColor)
+
+                Text(entry.content)
+                    .font(.system(size: 13))
+                    .foregroundColor(.primary)
+                    .lineSpacing(3)
+                    .multilineTextAlignment(.leading)
+
+                Spacer(minLength: 6)
+
+                HStack(spacing: 3) {
+                    Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 10))
+                    Text(isCopied ? "已复制" : "复制")
+                        .font(.system(size: 10.5, weight: .semibold))
+                }
+                .foregroundColor(isCopied ? .green : .secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(isCopied ? Color.green.opacity(0.12) : Color.secondary.opacity(0.08))
+                )
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isCopied ? Color.green.opacity(0.4) : Color.secondary.opacity(0.16), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("复制\(entry.effectiveLabel)") {
+                copyWithFeedback(
+                    text: entry.content,
+                    label: "\(entry.effectiveLabel)：\(entry.content)",
+                    key: copyKey
+                )
+            }
+            Divider()
+            Button(role: .destructive) {
+                store.removeNoteEntry(fromItemId: item.id, noteId: entry.id)
+            } label: {
+                Label("彻底删除此备注（不保留）", systemImage: "trash")
+            }
+        }
+    }
+
 
     // MARK: - 6. 底部元数据
     private var footerSection: some View {
