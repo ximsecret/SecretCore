@@ -70,15 +70,31 @@ public struct LockView: View {
            let img = NSImage(contentsOf: bundleURL) {
             return img
         }
-        let devPath = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // Views/
-            .deletingLastPathComponent() // LocalVault/
-            .deletingLastPathComponent() // Sources/
-            .deletingLastPathComponent() // root
-            .appendingPathComponent("Resources/SourceBrandIcon.png").path
-        if FileManager.default.fileExists(atPath: devPath),
-           let img = NSImage(contentsOfFile: devPath) {
-            return img
+        let candidates: [String?] = [
+            Bundle.main.resourceURL?.appendingPathComponent("SourceBrandIcon.png").path,
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/SourceBrandIcon.png").path,
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent() // Views/
+                .deletingLastPathComponent() // LocalVault/
+                .deletingLastPathComponent() // Sources/
+                .deletingLastPathComponent() // legacy_macos_swift/
+                .appendingPathComponent("Resources/SourceBrandIcon.png").path,
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent() // root
+                .appendingPathComponent("Resources/SourceBrandIcon.png").path,
+            "/Users/mac/Desktop/AI/misc/SecretCore/legacy_macos_swift/Resources/SourceBrandIcon.png",
+            "/Users/mac/Desktop/AI/misc/SecretCore/Resources/SourceBrandIcon.png",
+            "/Applications/SecretCore.app/Contents/Resources/SourceBrandIcon.png"
+        ]
+        for p in candidates.compactMap({ $0 }) {
+            if FileManager.default.fileExists(atPath: p),
+               let img = NSImage(contentsOfFile: p) {
+                return img
+            }
         }
         return nil
     }()

@@ -13,20 +13,32 @@ echo "==> 2. 运行加密、密码更换校验与 TOTP 算法自检..."
 
 package_bundle() {
     local TARGET_APP="$1"
+    rm -rf "$TARGET_APP"
     mkdir -p "$TARGET_APP/Contents/MacOS"
     mkdir -p "$TARGET_APP/Contents/Resources"
 
     cp "$DIR/.build/release/LocalVault" "$TARGET_APP/Contents/MacOS/LocalVault"
     chmod +x "$TARGET_APP/Contents/MacOS/LocalVault"
 
-    if [ -f "$DIR/Resources/AppIcon.icns" ]; then
-        cp "$DIR/Resources/AppIcon.icns" "$TARGET_APP/Contents/Resources/AppIcon.icns"
+    local RES_DIR="$DIR/Resources"
+    if [ ! -d "$RES_DIR" ] && [ -d "$DIR/../Resources" ]; then
+        RES_DIR="$DIR/../Resources"
     fi
-    if [ -f "$DIR/Resources/BrandHero.png" ]; then
-        cp "$DIR/Resources/BrandHero.png" "$TARGET_APP/Contents/Resources/BrandHero.png"
+
+    if [ -f "$RES_DIR/AppIcon.icns" ]; then
+        cp "$RES_DIR/AppIcon.icns" "$TARGET_APP/Contents/Resources/AppIcon.icns"
     fi
-    if [ -f "$DIR/Resources/SourceBrandIcon.png" ]; then
-        cp "$DIR/Resources/SourceBrandIcon.png" "$TARGET_APP/Contents/Resources/SourceBrandIcon.png"
+    if [ -f "$RES_DIR/BrandHero.png" ]; then
+        cp "$RES_DIR/BrandHero.png" "$TARGET_APP/Contents/Resources/BrandHero.png"
+    fi
+    if [ -f "$RES_DIR/SourceBrandIcon.png" ]; then
+        cp "$RES_DIR/SourceBrandIcon.png" "$TARGET_APP/Contents/Resources/SourceBrandIcon.png"
+    fi
+    if [ -f "$RES_DIR/AppIcon-Preview.png" ]; then
+        cp "$RES_DIR/AppIcon-Preview.png" "$TARGET_APP/Contents/Resources/AppIcon-Preview.png"
+    fi
+    if [ -f "$RES_DIR/LoginScreen-Preview.png" ]; then
+        cp "$RES_DIR/LoginScreen-Preview.png" "$TARGET_APP/Contents/Resources/LoginScreen-Preview.png"
     fi
 
     cat << 'PLIST' > "$TARGET_APP/Contents/Info.plist"
@@ -71,5 +83,17 @@ PLIST
 echo "==> 3. 封装 macOS 独立应用包 (SecretCore.app)..."
 package_bundle "$APP_DIR"
 
-echo "✅ 打包与签名完成:"
-echo "   主应用包: $APP_DIR"
+echo "==> 4. 安装部署至 /Applications/SecretCore.app 与 ~/Desktop/SecretCore.app..."
+rm -rf /Applications/SecretCore.app
+cp -R "$APP_DIR" /Applications/SecretCore.app
+rm -f ~/Desktop/SecretCore.app
+ln -s /Applications/SecretCore.app ~/Desktop/SecretCore.app
+
+# 注册 LaunchServices 图标缓存
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f /Applications/SecretCore.app || true
+touch /Applications/SecretCore.app
+
+echo "✅ 打包与部署完成:"
+echo "   本地构建包: $APP_DIR"
+echo "   系统程序包: /Applications/SecretCore.app"
+echo "   桌面快捷方式: ~/Desktop/SecretCore.app"

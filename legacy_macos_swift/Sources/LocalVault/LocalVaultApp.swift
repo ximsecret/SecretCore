@@ -4,9 +4,27 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        if let iconURL = Bundle.main.url(forResource: "BrandHero", withExtension: "png"),
-           let iconImg = NSImage(contentsOf: iconURL) {
-            NSApp.applicationIconImage = iconImg
+        let icon: NSImage? = {
+            if let img = NSImage(named: "AppIcon") { return img }
+            let icnsCandidates: [String?] = [
+                Bundle.main.url(forResource: "AppIcon", withExtension: "icns")?.path,
+                Bundle.main.resourceURL?.appendingPathComponent("AppIcon.icns").path,
+                Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/AppIcon.icns").path,
+                "/Users/mac/Desktop/AI/misc/SecretCore/legacy_macos_swift/Resources/AppIcon.icns",
+                "/Users/mac/Desktop/AI/misc/SecretCore/Resources/AppIcon.icns",
+                "/Applications/SecretCore.app/Contents/Resources/AppIcon.icns"
+            ]
+            for p in icnsCandidates.compactMap({ $0 }) {
+                if FileManager.default.fileExists(atPath: p), let img = NSImage(contentsOfFile: p) {
+                    return img
+                }
+            }
+            if let heroURL = Bundle.main.url(forResource: "BrandHero", withExtension: "png"),
+               let img = NSImage(contentsOf: heroURL) { return img }
+            return nil
+        }()
+        if let icon = icon {
+            NSApp.applicationIconImage = icon
         }
         NSApp.activate(ignoringOtherApps: true)
     }

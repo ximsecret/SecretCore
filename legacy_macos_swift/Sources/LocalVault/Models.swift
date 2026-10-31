@@ -1002,14 +1002,29 @@ public struct VaultBrandEmblemView: View {
            let img = NSImage(contentsOf: bundleURL) {
             return img
         }
-        let devPath = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // LocalVault/
-            .deletingLastPathComponent() // Sources/
-            .deletingLastPathComponent() // root
-            .appendingPathComponent("Resources/BrandHero.png").path
-        if FileManager.default.fileExists(atPath: devPath),
-           let img = NSImage(contentsOfFile: devPath) {
-            return img
+        let candidates: [String?] = [
+            Bundle.main.resourceURL?.appendingPathComponent("BrandHero.png").path,
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/BrandHero.png").path,
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent() // LocalVault/
+                .deletingLastPathComponent() // Sources/
+                .deletingLastPathComponent() // legacy_macos_swift/
+                .appendingPathComponent("Resources/BrandHero.png").path,
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent() // root
+                .appendingPathComponent("Resources/BrandHero.png").path,
+            "/Users/mac/Desktop/AI/misc/SecretCore/legacy_macos_swift/Resources/BrandHero.png",
+            "/Users/mac/Desktop/AI/misc/SecretCore/Resources/BrandHero.png",
+            "/Applications/SecretCore.app/Contents/Resources/BrandHero.png"
+        ]
+        for p in candidates.compactMap({ $0 }) {
+            if FileManager.default.fileExists(atPath: p),
+               let img = NSImage(contentsOfFile: p) {
+                return img
+            }
         }
         return nil
     }()
