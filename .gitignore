@@ -17,3 +17,13 @@ DerivedData/
 # Sensitive files / Vault data (just in case)
 vault.enc
 *.vault
+
+# Flutter & Dart artifacts
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+*.iml
+.idea/
+.vscode/
+*.scvault

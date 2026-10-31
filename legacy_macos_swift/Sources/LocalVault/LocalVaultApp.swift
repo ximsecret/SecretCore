@@ -48,12 +48,7 @@ struct LocalVaultApp: App {
             }
         }
 
-        // 菜单栏常驻小助手
-        MenuBarExtra("SecretCore · 极光秘核", systemImage: "lock.shield.fill") {
-            MenuBarView()
-                .environmentObject(store)
-        }
-        .menuBarExtraStyle(.window)
+
     }
 }
 
