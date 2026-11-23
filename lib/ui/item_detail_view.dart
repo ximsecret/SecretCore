@@ -13,6 +13,7 @@ import '../core/models/notes_layout_mode.dart';
 import '../core/models/password_credential_group.dart';
 import '../core/parser/smart_credential_parser.dart';
 import 'app_theme.dart';
+import 'item_editor_sheet.dart';
 import 'vault_store.dart';
 
 /// 条目详情页 — 对齐 Mac 版 ItemDetailView：
@@ -130,6 +131,14 @@ class _ItemDetailViewState extends State<ItemDetailView> {
           appBar: AppBar(
             title: Text(item.title),
             actions: [
+              IconButton(
+                key: const Key('detail_edit_button'),
+                tooltip: '编辑条目',
+                icon: const Icon(Icons.edit_outlined,
+                    color: AppTheme.textSecondary, size: 21),
+                onPressed: () =>
+                    openItemEditor(context, store: store, editingItem: item),
+              ),
               IconButton(
                 tooltip: item.isFavorite ? '取消收藏' : '收藏',
                 icon: Icon(

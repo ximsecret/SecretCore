@@ -4,6 +4,9 @@ import '../core/models/account_category.dart';
 import '../core/models/account_item.dart';
 import 'app_theme.dart';
 import 'item_detail_view.dart';
+import 'item_editor_sheet.dart';
+import 'password_generator_sheet.dart';
+import 'settings_view.dart';
 import 'sidebar_filter.dart';
 import 'totp_ring.dart';
 import 'vault_store.dart';
@@ -24,11 +27,18 @@ class MainVaultView extends StatelessWidget {
     );
   }
 
-  void _smartAdd(BuildContext context) {
+  void _pasteAdd(BuildContext context) {
     final cat = store.currentFilter.kind == 'category'
         ? store.currentFilter.category!
         : AccountCategory.general;
     store.smartAddFromClipboard(defaultCategory: cat);
+  }
+
+  void _smartAdd(BuildContext context) {
+    final cat = store.currentFilter.kind == 'category'
+        ? store.currentFilter.category!
+        : AccountCategory.general;
+    openItemEditor(context, store: store, defaultCategory: cat);
   }
 
   @override
@@ -41,12 +51,20 @@ class MainVaultView extends StatelessWidget {
 
         return Column(
           children: [
-            _HeaderBar(store: store, onSmartAdd: () => _smartAdd(context)),
+            _HeaderBar(
+              store: store,
+              onPasteAdd: () => _pasteAdd(context),
+              onSmartAdd: () => _smartAdd(context),
+            ),
             _QuickFilterChips(store: store),
             const Divider(height: 1),
             Expanded(
               child: filtered.isEmpty
-                  ? _EmptyStateView(store: store, onSmartAdd: () => _smartAdd(context))
+                  ? _EmptyStateView(
+                      store: store,
+                      onPasteAdd: () => _pasteAdd(context),
+                      onSmartAdd: () => _smartAdd(context),
+                    )
                   : _ItemsList(
                       store: store,
                       filtered: filtered,
@@ -64,9 +82,14 @@ class MainVaultView extends StatelessWidget {
 // ────────────────────────── 顶部搜索与操作栏 ──────────────────────────
 
 class _HeaderBar extends StatefulWidget {
-  const _HeaderBar({required this.store, required this.onSmartAdd});
+  const _HeaderBar({
+    required this.store,
+    required this.onPasteAdd,
+    required this.onSmartAdd,
+  });
 
   final VaultStore store;
+  final VoidCallback onPasteAdd;
   final VoidCallback onSmartAdd;
 
   @override
@@ -171,7 +194,7 @@ class _HeaderBarState extends State<_HeaderBar> {
                 onTap: store.toggleGroupByCategory,
               ),
               const SizedBox(width: 8),
-              _PasteAddButton(onTap: widget.onSmartAdd),
+              _PasteAddButton(onTap: widget.onPasteAdd),
               const SizedBox(width: 8),
               _SmartAddButton(onTap: widget.onSmartAdd),
             ],
@@ -940,9 +963,14 @@ class _MenuRow extends StatelessWidget {
 // ────────────────────────── 空态 ──────────────────────────
 
 class _EmptyStateView extends StatelessWidget {
-  const _EmptyStateView({required this.store, required this.onSmartAdd});
+  const _EmptyStateView({
+    required this.store,
+    required this.onPasteAdd,
+    required this.onSmartAdd,
+  });
 
   final VaultStore store;
+  final VoidCallback onPasteAdd;
   final VoidCallback onSmartAdd;
 
   @override
@@ -1001,7 +1029,7 @@ class _EmptyStateView extends StatelessWidget {
                 ),
               OutlinedButton.icon(
                 key: const Key('empty_paste_button'),
-                onPressed: onSmartAdd,
+                onPressed: onPasteAdd,
                 icon: const Icon(Icons.content_paste_rounded, size: 15),
                 label: const Text('粘贴剪贴板即存', style: TextStyle(fontSize: 12.5)),
               ),
@@ -1269,13 +1297,23 @@ class VaultDrawer extends StatelessWidget {
           _toolButton(
             icon: Icons.auto_fix_high_rounded,
             label: '密码器',
-            onTap: () => store.showStatusToast('独立密码生成器将在 M3 里程碑提供'),
+            onTap: () {
+              Navigator.pop(context);
+              showPasswordGeneratorSheet(context, store: store);
+            },
           ),
           const SizedBox(width: 8),
           _toolButton(
             icon: Icons.settings_rounded,
             label: '设置',
-            onTap: () => store.showStatusToast('安全策略设置将在 M4 里程碑提供'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SettingsView(store: store),
+                ),
+              );
+            },
           ),
           const Spacer(),
           InkWell(

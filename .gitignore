@@ -1,10 +1,12 @@
 # Xcode & SPM build artifacts
+# 注意：Runner.xcodeproj / Runner.xcworkspace 必须入库，否则克隆后无法构建 iOS
+# 只忽略用户态与构建产物
 .build/
 build/
 DerivedData/
-*.xcodeproj
-*.xcworkspace
+xcuserdata/
 *.xcuserstate
+*.xcscmblueprint
 
 # macOS system files
 .DS_Store
@@ -20,6 +22,9 @@ vault.enc
 
 # Flutter & Dart artifacts
 .dart_tool/
+build_tmp/
+*_out.log
+*_err.log
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages

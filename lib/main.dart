@@ -62,7 +62,7 @@ class _SecretCoreAppState extends State<SecretCoreApp>
       // 全局绿胶囊 Toast：覆盖所有路由（对齐 Mac 窗口级 clipboardStatusMessage）
       builder: (context, child) => Stack(
         children: [
-          if (child != null) child,
+          ?child,
           Positioned.fill(
             child: StatusToastLayer(store: _store),
           ),

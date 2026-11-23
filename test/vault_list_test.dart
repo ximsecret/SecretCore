@@ -98,7 +98,7 @@ Future<VaultStore> _pumpUnlockedHome(
       // 与生产入口一致：全局 Toast 层挂载于 MaterialApp.builder
       builder: (context, child) => Stack(
         children: [
-          if (child != null) child,
+          ?child,
           Positioned.fill(child: StatusToastLayer(store: store)),
         ],
       ),

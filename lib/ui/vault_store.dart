@@ -13,6 +13,7 @@ import '../core/parser/smart_credential_parser.dart';
 import '../core/storage/vault_storage.dart' show FileNotFoundException;
 import '../core/totp/totp_engine.dart';
 import 'keychain_service.dart';
+import 'quick_type_mirror.dart';
 import 'sidebar_filter.dart';
 import 'vault_storage_backend.dart';
 import 'web_vault_storage_backend.dart';
@@ -258,6 +259,8 @@ class VaultStore extends ChangeNotifier {
   Future<void> persist() async {
     if (!isUnlocked) return;
     await backend.save(items: _items, masterPassword: _masterPassword);
+    // AutoFill 镜像 best-effort：不阻塞持久化链路（测试环境无平台通道实现）
+    unawaited(QuickTypeMirror.sync(_items));
     recordActivity();
   }
 
