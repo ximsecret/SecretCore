@@ -48,6 +48,25 @@ class AccountItem {
   String get primaryUsername => entries.firstOrNull?.username ?? '';
   String get primaryPassword => entries.firstOrNull?.password ?? '';
 
+  /// 去除 # 前缀与空白的规范化自定义标签
+  String get normalizedCustomTag {
+    final t = customTag.trim();
+    if (t.startsWith('#')) return t.substring(1).trim();
+    return t;
+  }
+
+  /// 聚合备注文本（noteEntries + entries.notes），供全局搜索使用
+  String get notesText {
+    final buffer = StringBuffer();
+    for (final n in noteEntries) {
+      buffer.writeln('${n.effectiveLabel} ${n.content}');
+    }
+    for (final e in entries) {
+      if (e.notes.trim().isNotEmpty) buffer.writeln(e.notes);
+    }
+    return buffer.toString();
+  }
+
   List<NoteEntry> get effectiveNoteEntries {
     return noteEntries;
   }

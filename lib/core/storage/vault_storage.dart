@@ -41,16 +41,7 @@ class VaultStorage {
     File? customFile,
   }) async {
     final file = customFile ?? await getDefaultVaultFile();
-
-    final payload = {
-      'version': '1.0.0',
-      'updatedAt': DateTime.now().toIso8601String(),
-      'items': items.map((e) => e.toJson()).toList(),
-    };
-
-    final jsonString = jsonEncode(payload);
-    final encryptedBytes = await CryptoEngine.encryptVault(jsonString, masterPassword);
-
+    final encryptedBytes = await encryptItems(items, masterPassword);
     await file.writeAsBytes(encryptedBytes, flush: true);
   }
 
@@ -63,21 +54,45 @@ class VaultStorage {
     if (!await file.exists()) {
       throw FileNotFoundException('保险箱数据文件不存在');
     }
-
     final encryptedBytes = await file.readAsBytes();
-    final jsonString = await CryptoEngine.decryptVault(encryptedBytes, masterPassword);
+    return decryptItems(encryptedBytes, masterPassword);
+  }
 
+  /// 条目列表序列化为 JSON 信封字符串
+  static String serializeItems(List<AccountItem> items) {
+    final payload = {
+      'version': '1.0.0',
+      'updatedAt': DateTime.now().toIso8601String(),
+      'items': items.map((e) => e.toJson()).toList(),
+    };
+    return jsonEncode(payload);
+  }
+
+  /// JSON 信封字符串还原为条目列表
+  static List<AccountItem> deserializeItems(String jsonString) {
     final dynamic decoded = jsonDecode(jsonString);
     if (decoded is! Map<String, dynamic>) {
       throw FormatException('保险箱数据结构解析失败');
     }
-
     final itemsRaw = decoded['items'] as List<dynamic>?;
     if (itemsRaw == null) return [];
-
     return itemsRaw
         .map((e) => AccountItem.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// 加密条目为 .scvault 字节流（跨后端共用格式）
+  static Future<Uint8List> encryptItems(
+      List<AccountItem> items, String masterPassword) {
+    return CryptoEngine.encryptVault(serializeItems(items), masterPassword);
+  }
+
+  /// 解密 .scvault 字节流为条目列表
+  static Future<List<AccountItem>> decryptItems(
+      Uint8List encryptedBytes, String masterPassword) async {
+    final jsonString =
+        await CryptoEngine.decryptVault(encryptedBytes, masterPassword);
+    return deserializeItems(jsonString);
   }
 
   /// 导出加密的 .scvault 文件至指定路径（用于跨端 AirDrop / 备份）
